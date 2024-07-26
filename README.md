@@ -16,7 +16,9 @@ Project Structure
 
 Important links:
 Datasets link - https://www.kaggle.com/datasets/smaranjitghose/corn-or-maize-leaf-disease-dataset
+
 model.h5 - https://drive.google.com/file/d/1qJEJY06CpWiK3wf_-Z0K5EMbbZoN0BLe/view?usp=drivesdk
+
 features.npy - https://drive.google.com/file/d/1qJEJY06CpWiK3wf_-Z0K5EMbbZoN0BLe/view?usp=drivesdk
 
 Data Sources
