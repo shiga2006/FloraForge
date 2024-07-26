@@ -3,35 +3,14 @@
  Introduction
 This project focuses on the classification of corn leaf disease images using an Attentive Convolutional Gated Recurrent Unit (AC-GRU) with the Seeker optimizer. Additionally, it integrates yield prediction models, recommendation system and alert system to provide comprehensive insights for agricultural decision-making.
 
-Project Structure
+Project Structure:
 
-├── data
-│   ├── raw
-│   ├── processed
-├── notebooks
-│   ├── preprocessing.ipynb
-│   ├── segmentation.ipynb
-│   ├── feature_extraction.ipynb
-│   ├── optimization_classification.ipynb
-├── src
-│   ├── preprocessing
-│   │   ├── __init__.py
-│   │   ├── preprocess_data.py
-│   ├── segmentation
-│   │   ├── __init__.py
-│   │   ├── segment_images.py
-│   ├── feature_extraction
-│   │   ├── __init__.py
-│   │   ├── extract_features.py
-│   ├── optimization_classification
-│   │   ├── __init__.py
-│   │   ├── optimize_classify.py
-├── models
-│   ├── model.h5
-├── results
-│   ├── features.npy
-│   ├── labels.npy
-├── README.md
+
+-> Preprocessing
+-> Segementation
+-> Feature Extraction
+-> Otpimization and classification
+
 
 Important links:
 Datasets link - https://www.kaggle.com/datasets/smaranjitghose/corn-or-maize-leaf-disease-dataset
