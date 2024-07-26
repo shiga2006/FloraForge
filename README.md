@@ -5,17 +5,33 @@ This project focuses on the classification of corn leaf disease images using an 
 
 Project Structure
 
-
-
--> Preprocessing
--> Segementation
--> Feature Extraction
-   -> features.npy
-   -> labels.npy
--> Otpimization and classification
-   -> features.npy
-   -> labels.npy
-   -> model.h5
+├── data
+│   ├── raw
+│   ├── processed
+├── notebooks
+│   ├── preprocessing.ipynb
+│   ├── segmentation.ipynb
+│   ├── feature_extraction.ipynb
+│   ├── optimization_classification.ipynb
+├── src
+│   ├── preprocessing
+│   │   ├── __init__.py
+│   │   ├── preprocess_data.py
+│   ├── segmentation
+│   │   ├── __init__.py
+│   │   ├── segment_images.py
+│   ├── feature_extraction
+│   │   ├── __init__.py
+│   │   ├── extract_features.py
+│   ├── optimization_classification
+│   │   ├── __init__.py
+│   │   ├── optimize_classify.py
+├── models
+│   ├── model.h5
+├── results
+│   ├── features.npy
+│   ├── labels.npy
+├── README.md
 
 Important links:
 Datasets link - https://www.kaggle.com/datasets/smaranjitghose/corn-or-maize-leaf-disease-dataset
