@@ -1,0 +1,758 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.optimizers import Optimizer
+from tensorflow.keras import backend as K
+
+class SeekerOptimizer(Optimizer):
+    _HAS_AGGREGATE_GRAD = True
+
+    def _init_(self,
+                 learning_rate=0.01,
+                 rho=0.9,
+                 momentum=0.0,
+                 epsilon=1e-7,
+                 centered=False,
+                 name="SeekerOptimizer",
+                 **kwargs):
+        super(SeekerOptimizer, self)._init_(name, **kwargs)
+        self.learning_rate = learning_rate
+        self.rho = rho
+        self.momentum = momentum
+        self.epsilon = epsilon
+        self.centered = centered
+
+    def _create_slots(self, var_list):
+        for var in var_list:
+            self.add_slot(var, "rms")
+        if self.momentum > 0:
+            for var in var_list:
+                self.add_slot(var, "momentum")
+        if self.centered:
+            for var in var_list:
+                self.add_slot(var, "mg")
+
+    def _resource_apply_dense(self, grad, var, apply_state=None):
+        var_device, var_dtype = var.device, var.dtype.base_dtype
+        lr_t = K.get_value(self.learning_rate)
+        rho = K.get_value(self.rho)
+        momentum = K.get_value(self.momentum)
+        epsilon = K.get_value(self.epsilon)
+
+        rms = self.get_slot(var, "rms")
+        if self.momentum > 0:
+            mom = self.get_slot(var, "momentum")
+            if self.centered:
+                mg = self.get_slot(var, "mg")
+                return tf.compat.v1.train.RMSPropOptimizer(
+                    lr=lr_t, rho=rho, momentum=momentum, epsilon=epsilon
+                ).apply_gradients([(grad, var)])
+            else:
+                return tf.compat.v1.train.RMSPropOptimizer(
+                    lr=lr_t, rho=rho, momentum=momentum, epsilon=epsilon
+                ).apply_gradients([(grad, var)])
+        else:
+            rms_t = rho * rms + (1 - rho) * tf.square(grad)
+            rms.assign(rms_t)
+            denom_t = rms_t
+            if self.centered:
+                mg = self.get_slot(var, "mg")
+                mg_t = rho * mg + (1 - rho) * grad
+                mg.assign(mg_t)
+                denom_t = rms_t - tf.square(mg_t)
+            var_update = var - lr_t * grad / (tf.sqrt(denom_t) + epsilon)
+            var.assign(var_update)
+            return var_update
+
+    def _resource_apply_sparse(self, grad, var, indices, apply_state=None):
+        var_device, var_dtype = var.device, var.dtype.base_dtype
+        lr_t = K.get_value(self.learning_rate)
+        rho = K.get_value(self.rho)
+        momentum = K.get_value(self.momentum)
+        epsilon = K.get_value(self.epsilon)
+
+        rms = self.get_slot(var, "rms")
+        if self.momentum > 0:
+            mom = self.get_slot(var, "momentum")
+            if self.centered:
+                mg = self.get_slot(var, "mg")
+                return tf.compat.v1.train.RMSPropOptimizer(
+                    lr=lr_t, rho=rho, momentum=momentum, epsilon=epsilon
+                ).apply_gradients([(grad, var)])
+            else:
+                return tf.compat.v1.train.RMSPropOptimizer(
+                    lr=lr_t, rho=rho, momentum=momentum, epsilon=epsilon
+                ).apply_gradients([(grad, var)])
+        else:
+            rms_t = rho * rms + (1 - rho) * tf.square(grad)
+            rms.assign(rms_t)
+            denom_t = rms_t
+            if self.centered:
+                mg = self.get_slot(var, "mg")
+                mg_t = rho * mg + (1 - rho) * grad
+                mg.assign(mg_t)
+                denom_t = rms_t - tf.square(mg_t)
+            var_update = var - lr_t * grad / (tf.sqrt(denom_t) + epsilon)
+            var.assign(var_update)
+            return var_update
+
+    def get_config(self):
+        config = super(SeekerOptimizer, self).get_config()
+        config.update({
+            "learning_rate": self.learning_rate,
+            "rho": self.rho,
+            "momentum": self.momentum,
+            "epsilon": self.epsilon,
+            "centered": self.centered,
+        })
+        return config
+
+from keras.layers import (Input, Conv1D, Dense, Lambda, Dot, Activation, Layer, Concatenate, LSTM)
+from keras.models import Model
+from keras import backend as K
+
+
+class AttentionLayer(Layer):
+    def _init_(self, units=128, **kwargs):
+        print('[INFO] Building Attention Layer')
+        super(AttentionLayer, self)._init_(**kwargs)
+        self.units = units
+
+    def build(self, input_shape):
+        input_dim = int(input_shape[-1])
+        with K.name_scope('atttention'):
+            self.attention_score_vec = Dense(input_dim, use_bias=False, name='attention_score_vec')
+            self.h_t = Lambda(lambda x: x[:, -1, :], output_shape=(input_dim,), name='last_hidden_state')
+            self.attention_score = Dot(axes=[1, 2], name='attention_score')
+            self.attention_weight = Activation('softmax', name='attention_weight')
+            self.context_vector = Dot(axes=[1, 1], name='context_vector')
+            self.attention_output = Concatenate(name='attention_output')
+            self.attention_vector = Dense(self.units, use_bias=False, activation='tanh', name='attention_vector')
+            super(AttentionLayer, self).build(input_shape)
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0], self.units
+
+    def _call_(self, inputs, training=None, **kwargs):
+        return super(AttentionLayer, self)._call_(inputs, training, **kwargs)
+
+    def call(self, inputs, training=None, **kwargs):
+        score_first_part = self.attention_score_vec(inputs)
+        h_t = self.h_t(inputs)
+        score = self.attention_score([h_t, score_first_part])
+        attention_weights = self.attention_weight(score)
+        context_vector = self.context_vector([inputs, attention_weights])
+        pre_activation = self.attention_output([context_vector, h_t])
+        attention_vector = self.attention_vector(pre_activation)
+        return attention_vector
+
+    def get_config(self):
+        config = super(AttentionLayer, self).get_config()
+        config.update({'units': self.units})
+        return config
+
+
+def build_ACGRU(shape, out):
+    print('[INFO] Building Attention-Covolutional Gated Reccurent Model')
+    inputs = Input(shape=shape)
+    cnn = Conv1D(filters=128, kernel_size=3, padding='same', activation='relu')(inputs)
+    lstm = LSTM(64, return_sequences=True)(cnn)
+    hopfield = AttentionLayer(units=16)(lstm)
+    outputs = Dense(out, activation='softmax')(hopfield)
+    model = Model(inputs=[inputs], outputs=[outputs], name='acgru')
+    print('[INFO] Compiling Model Using Seeker Optimizer')
+    opt = SeekerOptimizer(learning_rate=0.0001)
+    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+    model.summary()
+    return model
+
+import numpy as np
+
+
+class Prediction:
+    def _init_(self, actual=None, predicted=None, probability=None, classes=None):
+        self.actual = actual
+        self.predicted = predicted
+        self.probability = probability
+        self.classes = list(range(len(np.unique(actual)))) if classes is None else classes
+
+
+class EpochPrediction:
+    def _init_(self):
+        self.prediction = []
+
+
+class Metric:
+    def _init_(self, om, cm):
+        self.overall_metrics = om
+        self.class_metrics = cm
+
+import inspect
+
+import numpy as np
+import pandas as pd
+from sklearn.metrics import average_precision_score, roc_auc_score as ras
+
+ROUND = 4
+AVAILABLE_METRICS = {
+    'accuracy': 'Accuracy',
+    'balanced_accuracy': 'Balanced Accuracy',
+    'precision': 'Precision',
+    'recall': 'Recall',
+    'specificity': 'Specificity',
+    'pr_auc_score': 'PR AUC Score',
+    'roc_auc_score': 'ROC AUC Score',
+    'f1_score': "F1-Score",
+    'npv': 'Negative Predictive Value',
+    'fnr': 'False Negative Rate',
+    'fpr': 'False Positive Rate',
+    'fdr': 'False Discovery Rate',
+    'for_': 'False Omission Rate',
+    'plikelihood_ratio': 'Positive Likelihood Ratio',
+    'nlikelihood_ratio': 'Negative Likelihood Ration',
+    'prevalence_threshold': 'Prevalence Threshold',
+    'threat_score': 'Threat Score',
+    'mcc': 'Mathews Correlation Coefficient',
+}
+MOST_REQUIRED = {
+    'accuracy': 'Accuracy',
+    'precision': 'Precision',
+    'recall': 'Recall',
+    'f1_score': "F1-Score",
+    'roc_auc_score': 'ROC AUC Score',
+}
+
+
+def fn_exec_kwargs(fn, kwargs):
+    keys = [k for k in inspect.getfullargspec(fn).args if k in kwargs]
+    return fn({k: kwargs[k] for k in keys})
+
+
+def format_(metric, name):
+    fmt = '{:.' + str(ROUND) + 'f}'
+    if name == 'accuracy':
+        overall = fmt.format(metric.sum())
+    else:
+        overall = fmt.format(metric.mean())
+    return overall, [fmt.format(v_) for v_ in metric]
+
+
+def confusion_matrix(actual, predicted, n_classes):
+    cm = np.zeros((n_classes, n_classes), dtype=int)
+    for i in range(len(actual)):
+        cm[actual[i]][predicted[i]] += 1
+    return cm
+
+
+def get_tp_fn_fp_tn(cm):
+    tp = np.diagonal(cm)
+    fn = cm.sum(axis=1) - tp
+    fp = cm.sum(axis=0) - tp
+    tn = cm.sum() - (tp + fn + fp)
+    return tp, fn, fp, tn
+
+
+def accuracy(tp, fn, fp, tn):
+    return tp / (tp + fn + fp + tn)
+
+
+def balanced_accuracy(tp, fn, fp, tn):
+    return (recall(tp, fn) + specificity(tn, fp)) / 2
+
+
+def precision(tp, fp):
+    try:
+        return tp / (tp + fp)
+    except RuntimeWarning:
+        return np.nan
+
+
+def recall(tp, fn):
+    return tp / (tp + fn)
+
+
+def specificity(tn, fp):
+    return tn / (tn + fp)
+
+
+def f1_score(tp, fn, fp):
+    ppv_ = precision(tp, fp)
+    tpr_ = recall(tp, fn)
+    return 2 * ((ppv_ * tpr_) / (ppv_ + tpr_))
+
+
+def __pr_roc_auc_score(actual, probability, f):
+    actual_onehot = np.eye(probability.shape[1])[actual]
+    scores = []
+    for i in range(probability.shape[1]):
+        y_true = actual_onehot[:, i]
+        y_score = probability[:, i]
+        if f == 'pr':
+            score = average_precision_score(y_true, y_score)
+        else:
+            score = ras(y_true, y_score)
+        scores.append(score)
+    return np.array(scores)
+
+
+def pr_auc_score(actual, probability):
+    return __pr_roc_auc_score(actual, probability, f='pr')
+
+
+def roc_auc_score(actual, probability):
+    return __pr_roc_auc_score(actual, probability, f='roc')
+
+
+def npv(tn, fn):
+    return tn / (tn + fn)
+
+
+def fnr(tp, fn):
+    return 1 - recall(tp, fn)
+
+
+def fpr(tn, fp):
+    return 1 - specificity(tn, fp)
+
+
+def fdr(tp, fp):
+    return 1 - precision(tp, fp)
+
+
+def for_(tn, fn):
+    return 1 - npv(tn, fn)
+
+
+def plikelihood_ratio(tp, fn, fp, tn):
+    return recall(tp, fn) / fpr(tn, fp)
+
+
+def nlikelihood_ratio(tp, fn, fp, tn):
+    return fnr(tp, fn) / specificity(tn, fp)
+
+
+def prevalence_threshold(tn, fp, fn, tp):
+    return np.sqrt(fpr(tn, fp)) / (np.sqrt(recall(tp, fn)) + np.sqrt(fpr(tn, fp)))
+
+
+def threat_score(tp, fn, fp):
+    return tp / (tp + fn + fp)
+
+
+def mcc(tp, fn, fp, tn):
+    n = tn + tp + fn + fp
+    s = (tp + fn) / n
+    p = (tp + fp) / n
+    return ((tp / n) - (s * p)) / np.sqrt(p * s * (1 - s) * (1 - p))
+
+
+def evaluate(actual, predicted, probability, classes, required_metrics=None):
+    if required_metrics is None:
+        required_metrics = MOST_REQUIRED
+    cm = confusion_matrix(actual, predicted, len(classes))
+    tp, fn, fp, tn = get_tp_fn_fp_tn(cm)
+    kwargs = {
+        'actual': actual, 'predicted': predicted, 'probability': probability,
+        'tp': tp, 'fn': fn, 'fp': fp, 'tn': tn
+    }
+    overall_data = {}
+    class_data = {}
+    for m in required_metrics:
+        metric = fn_exec_kwargs(globals()[m], kwargs)
+        overall, class_ = format_(metric, m)
+        overall_data[required_metrics[m]] = [overall]
+        class_data[required_metrics[m]] = class_
+
+    overall_df = pd.DataFrame.from_dict(overall_data).T
+    idx = overall_df.index.values
+    overall_df.insert(0, 'Metrics', idx)
+    overall_df.reset_index(drop=True, inplace=True)
+    overall_df.columns = ['Metrics', 'Values']
+    class_df = pd.DataFrame.from_dict(class_data)
+    class_df.insert(0, 'Class', classes)
+    return Metric(overall_df, class_df)
+
+
+import os
+import sys
+import math
+import cv2
+import traceback
+
+import matplotlib
+import numpy as np
+import pandas as pd
+import prettytable
+import tensorflow as tf
+from PyQt5.QtCore import QRunnable, pyqtSignal, QObject, pyqtSlot
+from keras import backend as K
+from keras.callbacks import Callback
+from keras.layers import Conv2D, Dropout
+from keras.losses import binary_crossentropy
+from keras.regularizers import l2
+import matplotlib.pyplot as plt
+
+plt.set_cmap('Dark2')
+plt.rcParams['font.family'] = 'JetBrains Mono'
+matplotlib.use('Agg')
+
+CLASSES = ['Blight', 'Common_Rust', 'Gray_Leaf_Spot', 'Healthy']
+
+GRAPHS = {
+    'Train': {
+        'CONF_MAT': plt.figure(),
+        'PR_CURVE': plt.figure(),
+        'ROC_CURVE': plt.figure(),
+    },
+    'Test': {
+        'CONF_MAT': plt.figure(),
+        'PR_CURVE': plt.figure(),
+        'ROC_CURVE': plt.figure(),
+    }
+}
+
+
+def read_image(file_path):
+    return cv2.imread(file_path)
+
+
+def split_rgb(rgb_img):
+    rgb_img = np.array(rgb_img, dtype='float64')
+    r = np.zeros((rgb_img.shape[0], rgb_img.shape[1]), dtype=rgb_img.dtype)
+    g = np.zeros((rgb_img.shape[0], rgb_img.shape[1]), dtype=rgb_img.dtype)
+    b = np.zeros((rgb_img.shape[0], rgb_img.shape[1]), dtype=rgb_img.dtype)
+    r[:, :] = rgb_img[:, :, 2]
+    g[:, :] = rgb_img[:, :, 1]
+    b[:, :] = rgb_img[:, :, 0]
+    return r, g, b
+
+smooth = 1.
+dropout_rate = 0.5
+act = "relu"
+
+
+def dice_loss(y_true, y_pred):
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = y_true_f * y_pred_f
+    score = (2. * K.sum(intersection) + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+    return 1. - score
+
+def combine_images(generated_images, height=None, width=None):
+    num = generated_images.shape[0]
+    if width is None and height is None:
+        width = int(math.sqrt(num))
+        height = int(math.ceil(float(num)/width))
+    elif width is not None and height is None:  # height not given
+        height = int(math.ceil(float(num)/width))
+    elif height is not None and width is None:  # width not given
+        width = int(math.ceil(float(num)/height))
+
+    shape = generated_images.shape[1:3]
+    image = np.zeros((height*shape[0], width*shape[1]),
+                     dtype=generated_images.dtype)
+    for index, img in enumerate(generated_images):
+        i = int(index/width)
+        j = index % width
+        image[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = \
+            img[:, :, 0]
+    return image
+
+
+def bce_dice_loss(y_true, y_pred):
+    return binary_crossentropy(y_true, y_pred) + dice_loss(y_true, y_pred)
+
+
+def get_iou_vector(A, B):
+    t = A > 0
+    p = B > 0
+    intersection = np.logical_and(t, p)
+    union = np.logical_or(t, p)
+    iou = (np.sum(intersection) + 1e-10) / (np.sum(union) + 1e-10)
+    return iou
+
+
+def iou_metric(label, pred):
+    return tf.compat.v1.py_func(get_iou_vector, [label, pred > 0.5], tf.float64)
+
+
+def standard_unit(input_tensor, stage, nb_filter, kernel_size=3):
+    x = Conv2D(nb_filter, (kernel_size, kernel_size), activation=act, name='conv' + stage + '_1',
+               kernel_initializer='he_normal', padding='same', kernel_regularizer=l2(1e-4))(input_tensor)
+    x = Dropout(dropout_rate, name='dp' + stage + '_1')(x)
+    x = Conv2D(nb_filter, (kernel_size, kernel_size), activation=act, name='conv' + stage + '_2',
+               kernel_initializer='he_normal', padding='same', kernel_regularizer=l2(1e-4))(x)
+    x = Dropout(dropout_rate, name='dp' + stage + '_2')(x)
+
+    return x
+
+
+class TrainingCallbackUnet(Callback):
+    def _init_(self, measures_csv_path, measures_png_path):
+        self.measures_csv_path = measures_csv_path
+        self.measures_png_path = measures_png_path
+        if os.path.isfile(self.measures_csv_path):
+            self.df = pd.read_csv(self.measures_csv_path)
+        else:
+            self.df = pd.DataFrame([], columns=['epoch', 'accuracy', 'val_accuracy', 'loss', 'val_loss',
+                                                'iou_metric', 'val_iou_metric'])
+            self.df.to_csv(self.measures_csv_path, index=False)
+        Callback._init_(self)
+
+    def on_epoch_end(self, epoch, logs=None):
+        self.df.loc[len(self.df.index)] = [
+            str(int(epoch + 1)).zfill(2),
+            round(logs['accuracy'], 4), round(logs['val_accuracy'], 4),
+            round(logs['loss'], 4), round(logs['val_loss'], 4),
+            round(logs['iou_metric'], 4), round(logs['val_iou_metric'], 4)
+        ]
+        self.df.to_csv(self.measures_csv_path, index=False)
+        plot_measures(self.df, self.measures_png_path)
+
+
+def plot_measures(df, save_path):
+    f, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(16, 4))
+    f.suptitle('UNETPP Performance', fontsize=12)
+    f.subplots_adjust(top=0.85, wspace=0.3)
+
+    epochs = len(df)
+    acc = df['accuracy'].values
+    val_acc = df['val_accuracy'].values
+    loss = df['loss'].values
+    val_loss = df['val_loss'].values
+    iou_metric_ = df['iou_metric'].values
+    val_iou_metric = df['val_iou_metric'].values
+    end = 32
+
+    ax1.plot(range(epochs), acc, label='Train Accuracy')
+    ax1.plot(range(epochs), val_acc, label='Validation Accuracy')
+    ax1.set_xticks(np.arange(0, epochs+end, end))
+    ax1.set_ylabel('Accuracy Value')
+    ax1.set_xlabel('Epoch')
+    ax1.set_title('Accuracy')
+    ax1.legend(loc="best")
+    ax1.grid(color='gray', linestyle='-', linewidth=0.5)
+
+    ax2.plot(range(epochs), loss, label='Train Loss')
+    ax2.plot(range(epochs), val_loss, label='Validation Loss')
+    ax2.set_xticks(np.arange(0, epochs+end, end))
+    ax2.set_ylabel('Loss Value')
+    ax2.set_xlabel('Epoch')
+    ax2.set_title('Loss')
+    ax2.legend(loc="best")
+    ax2.grid(color='gray', linestyle='-', linewidth=0.5)
+
+    ax3.plot(range(epochs), iou_metric_, label='Train IOU metric')
+    ax3.plot(range(epochs), val_iou_metric, label='Validation IOU metric')
+    ax3.set_xticks(np.arange(0, epochs+end, end))
+    ax3.set_ylabel('IOU metric')
+    ax3.set_xlabel('Epoch')
+    ax3.set_title('IOU metric')
+    ax3.legend(loc="best")
+    ax3.grid(color='gray', linestyle='-', linewidth=0.5)
+
+    plt.savefig(save_path)
+
+
+class WorkerSignals(QObject):
+    finished = pyqtSignal()
+    error = pyqtSignal(tuple)
+    result = pyqtSignal(object)
+
+
+class Worker(QRunnable):
+    def _init_(self, fn, *args, **kwargs):
+        super(Worker, self)._init_()
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+        self.signals = WorkerSignals()
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            result = self.fn(*self.args, **self.kwargs)
+        except Exception as e:
+            print(e)
+            traceback.print_exc()
+            exc_type, value = sys.exc_info()[:2]
+            self.signals.error.emit((exc_type, value, traceback.format_exc()))
+        else:
+            self.signals.result.emit(result)
+        finally:
+            self.signals.finished.emit()
+
+
+def print_df_to_table(df, p=True):
+    field_names = list(df.columns)
+    p_table = prettytable.PrettyTable(field_names=field_names)
+    p_table.add_rows(df.values.tolist())
+    d = '\n'.join(['\t\t{0}'.format(p_) for p_ in p_table.get_string().splitlines(keepends=False)])
+    if p:
+        print(d)
+    return d
+
+class TrainingCallback(Callback):
+    def _init_(self, acc_loss_path, name):
+        super(TrainingCallback, self)._init_()
+        self.acc_loss_path = acc_loss_path
+        self.name = name
+        if os.path.isfile(self.acc_loss_path):
+            self.df = pd.read_csv(self.acc_loss_path)
+        else:
+            self.df = pd.DataFrame([], columns=['epoch', 'accuracy', 'val_accuracy', 'loss', 'val_loss'])
+            self.df.to_csv(self.acc_loss_path, index=False)
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        self.df.loc[len(self.df.index)] = [
+            int(epoch + 1), 
+            round(logs.get('accuracy', 0), 4), 
+            round(logs.get('val_accuracy', 0), 4),
+            round(logs.get('loss', 0), 4), 
+            round(logs.get('val_loss', 0), 4)
+        ]
+        self.df.to_csv(self.acc_loss_path, index=False)
+        print('[EPOCH :: {0}] -> Acc :: {1} | Val_Acc :: {2} | Loss :: {3} | Val_Loss :: {4}'.format(
+            epoch + 1, *[format(v, '.4f') for v in self.df.values[-1][1:]]
+        ))
+        plot_acc_loss(self.df, self.name)
+
+def plot_line(y1, y2, epochs, for_, save_path):
+    fig = plt.figure(num=1)
+    plt.plot(range(epochs), y1, label='Training', color='dodgerblue')
+    plt.plot(range(epochs), y2, label='Validation', color='orange')
+    plt.title('Training and Validation {0}'.format(for_))
+    plt.xlabel('Epochs')
+    plt.ylabel(for_)
+    plt.xlim([0, epochs])
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.clf()
+    plt.close(fig)
+
+
+def plot_acc_loss(df, name):
+    epochs = len(df)
+    acc = df['accuracy'].values
+    val_acc = df['val_accuracy'].values
+    loss = df['loss'].values
+    val_loss = df['val_loss'].values
+    plot_line(acc, val_acc, epochs, 'Accuracy', '{0}/accuracy.png'.format(name))
+    plot_line(loss, val_loss, epochs, 'Loss', '{0}/loss.png'.format(name))
+
+def plot(y, pred, prob, results_dir):
+    for_ = os.path.basename(results_dir)
+    print('[INFO] Evaluating {0} Data'.format(for_))
+    os.makedirs(results_dir, exist_ok=True)
+
+    m = evaluate(y, pred, prob, CLASSES)
+    df = m.overall_metrics
+    df.to_csv(os.path.join(results_dir, 'metrics.csv'), index=False)
+    print_df_to_table(df)
+
+    fig = GRAPHS[for_]['CONF_MAT']
+    ax = fig.gca()
+    ax.clear()
+    confusion_matrix(y, pred, CLASSES, ax=ax, xticklabels_rotation=90, yticklabels_rotation=0)
+    fig.tight_layout()
+    fig.savefig(os.path.join(results_dir, 'conf_mat.png'))
+
+    fig = GRAPHS[for_]['PR_CURVE']
+    ax = fig.gca()
+    ax.clear()
+    precision_recall_curve(y, prob, CLASSES, ax=ax, legend_ncol=1)
+    fig.tight_layout()
+    fig.savefig(os.path.join(results_dir, 'pr_curve.png'))
+
+    fig = GRAPHS[for_]['ROC_CURVE']
+    ax = fig.gca()
+    ax.clear()
+    roc_curve(y, prob, CLASSES, ax=ax, legend_ncol=1)
+    fig.tight_layout()
+    fig.savefig(os.path.join(results_dir, 'roc_curve.png'))
+
+
+import os
+import pickle
+import shutil
+import numpy as np
+import pandas as pd
+from keras.callbacks import ModelCheckpoint
+from keras.utils import to_categorical
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+def get_data():
+    print('[INFO] Loading Data')
+    f_path = r'C:/archive/Features/features.npy'
+    l_path = r'C:/archive/Features/labels.npy'
+    features = np.load(f_path)
+    labels = np.load(l_path)
+    return features, labels
+
+def setup_directories(model_dir):
+    if os.path.exists(model_dir):
+        shutil.rmtree(model_dir)
+    os.makedirs(model_dir, exist_ok=True)
+
+def train():
+    x, y = get_data()
+    CLASSES = ['Blight', 'Common_Rust', 'Gray_Leaf_Spot', 'Healthy']
+    
+    # Data Scaling
+    ss = StandardScaler()
+    x = ss.fit_transform(x)
+    with open(r'C:\archive\ss.pkl', 'wb') as f:
+        pickle.dump(ss, f)
+    x = np.expand_dims(x, axis=1)
+
+    # Train-Test Split
+    print('[INFO] Splitting Train|Test Data')
+    train_x, test_x, train_y, test_y = train_test_split(x, y, test_size=0.3, shuffle=True, random_state=42)
+    y_cat = to_categorical(y, len(CLASSES))
+    train_y_cat = to_categorical(train_y, len(CLASSES))
+    test_y_cat = to_categorical(test_y, len(CLASSES))
+    
+    print(f'[INFO] X Shape: {x.shape}')
+    print(f'[INFO] Train X Shape: {train_x.shape}')
+    print(f'[INFO] Test X Shape: {test_x.shape}')
+
+    # Directory and Callback Setup
+    model_dir = r'C:/archive/model_dir'
+    setup_directories(model_dir)
+    acc_loss_csv_path = os.path.join(model_dir, 'acc_loss.csv')
+    model_path = os.path.join(model_dir, 'model.h5')
+    training_cb = TrainingCallback(acc_loss_csv_path, model_dir)
+    checkpoint = ModelCheckpoint(model_path, save_best_only=True, save_weights_only=True,
+                                 monitor='val_accuracy', mode='max', verbose=1)
+
+    # Model Building and Training
+    model = build_ACGRU(x.shape[1:], len(CLASSES))
+    
+    initial_epoch = 0
+    if os.path.isfile(model_path) and os.path.isfile(acc_loss_csv_path):
+        print(f'[INFO] Loading Pre-Trained Model: {model_path}')
+        model.load_weights(model_path)
+        initial_epoch = len(pd.read_csv(acc_loss_csv_path))
+
+    print('[INFO] Fitting Data')
+    model.fit(train_x, train_y_cat, validation_data=(test_x, test_y_cat),
+              batch_size=330, epochs=30,
+              verbose=1, initial_epoch=initial_epoch, callbacks=[training_cb, checkpoint])
+
+    # Predictions and Plotting
+    train_prob = model.predict(train_x)
+    train_pred = np.argmax(train_prob, axis=1)
+    plot(train_y, train_pred, train_prob, 'results/Train')
+
+    test_prob = model.predict(test_x)
+    test_pred = np.argmax(test_prob, axis=1)
+    plot(test_y, test_pred, test_prob, 'results/Test')
+
+if __name__ == '_main_':
+    train()

@@ -1,0 +1,63 @@
+import cv2
+import os
+
+def apply_gaussian_filter(image_path, output_path, kernel_size=(5, 5), sigma=0):
+    """Applies Gaussian filter to an image."""
+    # Read the image
+    image = cv2.imread(image_path)
+    if image is None:
+        print(f"Error: Unable to read image {image_path}")
+        return None
+    
+    # Apply Gaussian filter
+    filtered_image = cv2.GaussianBlur(image, kernel_size, sigma)
+    
+    # Save the processed image
+    cv2.imwrite(output_path, filtered_image)
+    #print(f"Processed and saved: {output_path}")
+
+    return filtered_image
+
+def process_category(image_dir, output_dir):
+    """Processes images in a specified directory using Gaussian filter and saves them to the output directory."""
+    if not os.path.isdir(image_dir):
+        print(f"Error: {image_dir} is not a valid directory.")
+        return
+
+    # Create subdirectory in output directory for the category
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # List all image files in the directory
+    image_files = [file for file in os.listdir(image_dir) if file.lower().endswith(('.jpg', '.png'))]
+    
+    for image_name in image_files:
+        image_path = os.path.join(image_dir, image_name)
+        output_path = os.path.join(output_dir, f"gaussian_filtered_{image_name}")
+        apply_gaussian_filter(image_path, output_path)
+
+if __name__ == "__main__":
+    # Directory to save processed images for each category
+    output_base_dir = r'C:\archive\Gaussian_Preprocessed'
+    
+    # Process images in Blight category
+    blight_input_dir = r'C:\archive\data\Blight'
+    blight_output_dir = os.path.join(output_base_dir, 'Blight')
+    process_category(blight_input_dir, blight_output_dir)
+
+    # Process images in Common_Rust category
+    common_rust_input_dir = r'C:\archive\data\Common_Rust'
+    common_rust_output_dir = os.path.join(output_base_dir, 'Common_Rust')
+    process_category(common_rust_input_dir, common_rust_output_dir)
+    
+    # Process images in Gray_Leaf_Spot category
+    gray_leaf_spot_input_dir = r'C:\archive\data\Gray_Leaf_Spot'
+    gray_leaf_spot_output_dir = os.path.join(output_base_dir, 'Gray_Leaf_Spot')
+    process_category(gray_leaf_spot_input_dir, gray_leaf_spot_output_dir)
+    
+    # Process images in Healthy category
+    healthy_input_dir = r'C:\archive\data\Healthy'
+    healthy_output_dir = os.path.join(output_base_dir, 'Healthy')
+    process_category(healthy_input_dir, healthy_output_dir)
+    
+    print("Preprocessing is done")
