@@ -4,6 +4,9 @@
 This project focuses on the classification of corn leaf disease images using an Attentive Convolutional Gated Recurrent Unit (AC-GRU) with the Seeker optimizer. Additionally, it integrates yield prediction models, recommendation system and alert system to provide comprehensive insights for agricultural decision-making.
 
 Project Structure
+
+
+
 -> Preprocessing
 -> Segementation
 -> Feature Extraction
