@@ -14,8 +14,10 @@ Project Structure
    -> labels.npy
    -> model.h5
 
-
-Datasets link - 
+Important links:
+Datasets link - https://www.kaggle.com/datasets/smaranjitghose/corn-or-maize-leaf-disease-dataset
+model.h5 - https://drive.google.com/file/d/1qJEJY06CpWiK3wf_-Z0K5EMbbZoN0BLe/view?usp=drivesdk
+features.npy - https://drive.google.com/file/d/1qJEJY06CpWiK3wf_-Z0K5EMbbZoN0BLe/view?usp=drivesdk
 
 Data Sources
 - Disease Classification Images: Collected from agricultural research centers, open-source repositories, and field surveys.
