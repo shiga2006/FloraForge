@@ -18,6 +18,8 @@ Datasets link - https://www.kaggle.com/datasets/smaranjitghose/corn-or-maize-lea
 model.h5 - https://drive.google.com/file/d/1qJEJY06CpWiK3wf_-Z0K5EMbbZoN0BLe/view?usp=drivesdk
 
 features.npy - https://drive.google.com/file/d/1qKof30oYHv5EJnGmrGUYmKkWKugIJlaG/view?usp=drivesdk
+Demo video link - https://drive.google.com/file/d/1v3x_4CUAb0URL9nZHeeEJrpGPLSkugEM/view?usp=drivesdk
+
 
 Data Sources
 - Disease Classification Images: Collected from agricultural research centers, open-source repositories, and field surveys.
